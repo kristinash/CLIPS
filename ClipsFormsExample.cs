@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using CLIPSNET;
+using System.IO;
 
 namespace ClipsFormsExample
 {
@@ -21,10 +22,13 @@ namespace ClipsFormsExample
         public ClipsFormsExample()
         {
             InitializeComponent();
+            InitializeVoiceSystem();
+        }
 
+        private void InitializeVoiceSystem()
+        {
             try
             {
-                // Инициализация синтезатора речи
                 synth = new Microsoft.Speech.Synthesis.SpeechSynthesizer();
                 synth.SetOutputToDefaultAudioDevice();
 
@@ -37,7 +41,6 @@ namespace ClipsFormsExample
                     synth.SelectVoice(voices[0].VoiceInfo.Name);
                 }
 
-                // Инициализация распознавателя речи
                 var RecognizerInfo = Microsoft.Speech.Recognition.SpeechRecognitionEngine.InstalledRecognizers()
                     .Where(ri => ri.Culture.Name == "ru-RU")
                     .FirstOrDefault();
@@ -46,15 +49,16 @@ namespace ClipsFormsExample
                 {
                     recogn = new Microsoft.Speech.Recognition.SpeechRecognitionEngine(RecognizerInfo);
                     recogn.SpeechRecognized += Recogn_SpeechRecognized;
+                    richTextBox1.Text += "Голосовая система инициализирована" + System.Environment.NewLine;
                 }
                 else
                 {
-                    outputBox.Text += "Распознаватель речи для русского языка не найден" + System.Environment.NewLine;
+                    richTextBox1.Text += "Распознаватель речи для русского языка не найден" + System.Environment.NewLine;
                 }
             }
             catch (Exception ex)
             {
-                outputBox.Text += "Ошибка инициализации: " + ex.Message + System.Environment.NewLine;
+                richTextBox1.Text += "Ошибка инициализации голоса: " + ex.Message + System.Environment.NewLine;
             }
         }
 
@@ -70,15 +74,18 @@ namespace ClipsFormsExample
                     }
 
                     string recognizedText = e.Result.Text;
-                    outputBox.Text += "Распознано: " + recognizedText + System.Environment.NewLine;
+                    richTextBox1.Text += "Распознано: " + recognizedText + System.Environment.NewLine;
 
-                  
                     richTextBox2.Text = recognizedText;
-                    nextBtn_Click(sender, e);
+
+                    if (systemInitialized)
+                    {
+                        nextBtn_Click(sender, e);
+                    }
                 }
                 catch (Exception ex)
                 {
-                    outputBox.Text += "Ошибка обработки речи: " + ex.Message + System.Environment.NewLine;
+                    richTextBox1.Text += "Ошибка обработки речи: " + ex.Message + System.Environment.NewLine;
                 }
             }));
         }
@@ -89,27 +96,40 @@ namespace ClipsFormsExample
             {
                 if (!systemInitialized)
                 {
-                    outputBox.Text += "=== Инициализация системы ===" + System.Environment.NewLine;
+                    richTextBox1.Text += "=== Инициализация системы ===" + System.Environment.NewLine;
 
-                    // Загружаем CLIPS код
                     clips.Clear();
-                    clips.LoadFromString(codeBox.Text);
+
+                    string clipsCode = codeBox.Text;
+                    clips.LoadFromString(clipsCode);
                     clips.Reset();
 
-                    // Запускаем начальную инициализацию
                     clips.Run();
 
-                    // Получаем начальное сообщение
                     GetSystemResponse();
 
                     systemInitialized = true;
-                    outputBox.Text += "Система готова к работе!" + System.Environment.NewLine;
+
+                    SayGreeting();
+
+                    richTextBox1.Text += "Система готова к диалогу!" + System.Environment.NewLine;
                 }
             }
             catch (Exception ex)
             {
-                outputBox.Text += "Ошибка инициализации: " + ex.Message + System.Environment.NewLine;
-                MessageBox.Show("Ошибка: " + ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                richTextBox1.Text += "Ошибка инициализации: " + ex.Message + System.Environment.NewLine;
+            }
+        }
+
+        private void SayGreeting()
+        {
+            if (synth != null)
+            {
+                try
+                {
+                    synth.SpeakAsync("Добро пожаловать в кулинарную экспертную систему! Что вы хотите приготовить?");
+                }
+                catch { }
             }
         }
 
@@ -117,7 +137,6 @@ namespace ClipsFormsExample
         {
             try
             {
-                // Получаем факт ioproxy
                 string evalStr = "(find-fact ((?f ioproxy)) TRUE)";
                 var result = clips.Eval(evalStr);
 
@@ -125,115 +144,106 @@ namespace ClipsFormsExample
                 {
                     FactAddressValue fv = (FactAddressValue)multifield[0];
 
-                    // Получаем сообщения
                     MultifieldValue messagesField = (MultifieldValue)fv["messages"];
+                    MultifieldValue answersField = (MultifieldValue)fv["answers"];
 
-                    // Выводим сообщения
-                    outputBox.Text += "--- Сообщение от системы ---" + System.Environment.NewLine;
+                    richTextBox1.Text += "--- Сообщение от системы ---" + System.Environment.NewLine;
 
+                    bool firstMessage = true;
                     for (int i = 0; i < messagesField.Count; i++)
                     {
                         if (messagesField[i] is LexemeValue message)
                         {
                             string msgText = message.Value;
-                            outputBox.Text += msgText + System.Environment.NewLine;
+                            richTextBox1.Text += msgText + System.Environment.NewLine;
 
-                            // Озвучиваем первое сообщение
-                            if (i == 0 && synth != null)
+                            if (firstMessage && synth != null)
                             {
                                 synth.SpeakAsync(msgText);
+                                firstMessage = false;
                             }
                         }
                     }
 
-                    outputBox.Text += System.Environment.NewLine;
-
-                    // Получаем варианты ответов
-                    MultifieldValue answersField = (MultifieldValue)fv["answers"];
                     if (answersField.Count > 0)
                     {
-                        outputBox.Text += "--- Варианты ответов ---" + System.Environment.NewLine;
+                        richTextBox1.Text += System.Environment.NewLine + "--- Варианты ответов ---" + System.Environment.NewLine;
                         for (int i = 0; i < answersField.Count; i++)
                         {
                             if (answersField[i] is LexemeValue answer)
                             {
-                                outputBox.Text += answer.Value + System.Environment.NewLine;
+                                string answerText = $"{i + 1}. {answer.Value}";
+                                richTextBox1.Text += answerText + System.Environment.NewLine;
                             }
                         }
-                        outputBox.Text += System.Environment.NewLine;
                     }
-                }
-                else
-                {
-                    outputBox.Text += "Нет сообщений от системы" + System.Environment.NewLine;
+
+                    richTextBox1.Text += System.Environment.NewLine;
                 }
             }
             catch (Exception ex)
             {
-                outputBox.Text += "Ошибка получения ответа: " + ex.Message + System.Environment.NewLine;
+                richTextBox1.Text += "Ошибка получения ответа: " + ex.Message + System.Environment.NewLine;
+            }
+        }
+
+        private void ProcessUserInput(string input)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(input))
+                {
+                    richTextBox1.Text += $"Пользователь: {input}" + System.Environment.NewLine;
+
+                    clips.Eval("(assert (clearmessage))");
+
+                    string safeInput = input.Replace("\"", "\\\"");
+                    clips.AssertString($"(user-wants \"{safeInput}\")");
+
+                    clips.Run();
+
+                    GetSystemResponse();
+
+                    richTextBox2.Clear();
+                }
+            }
+            catch (Exception ex)
+            {
+                richTextBox1.Text += "Ошибка: " + ex.Message + System.Environment.NewLine;
             }
         }
 
         private void nextBtn_Click(object sender, EventArgs e)
         {
-            try
+            if (!systemInitialized)
             {
-                // Получаем текст из richTextBox2
-                string input = richTextBox2.Text.Trim();
-
-                if (!string.IsNullOrEmpty(input))
-                {
-                    outputBox.Text += "=== Поиск рецепта для: '" + input + "' ===" + System.Environment.NewLine;
-
-                    // Очищаем предыдущие запросы - ИСПРАВЛЕННАЯ СТРОКА
-                    clips.Eval("(delayed-do-for-all-facts ((?f user-wants)) TRUE (retract ?f))");
-
-                    
-                    string safeInput = input.Replace("\"", "\\\"");
-                    clips.AssertString($"(user-wants \"{safeInput}\")");
-
-                    // Очищаем старые сообщения
-                    clips.Eval("(assert (clearmessage))");
-
-                    // Запускаем обработку
-                    clips.Run();
-
-                    // Получаем ответ
-                    GetSystemResponse();
-
-                    // Очищаем поле ввода
-                    richTextBox2.Clear();
-                }
-                else
-                {
-                    outputBox.Text += "Пожалуйста, введите название блюда" + System.Environment.NewLine;
-                }
+                InitializeSystem();
             }
-            catch (Exception ex)
+            else
             {
-                outputBox.Text += "Ошибка: " + ex.Message + System.Environment.NewLine;
+                ProcessUserInput(richTextBox2.Text.Trim());
             }
         }
 
         private void resetBtn_Click(object sender, EventArgs e)
         {
-            outputBox.Text = "=== Сброс системы ===" + System.Environment.NewLine;
+            richTextBox1.Text = "=== Сброс системы ===" + System.Environment.NewLine;
 
             try
             {
                 clips.Clear();
                 clips.LoadFromString(codeBox.Text);
                 clips.Reset();
-
                 clips.Run();
 
-                outputBox.Text += "Система сброшена и инициализирована!" + System.Environment.NewLine;
-                outputBox.Text += "Введите название блюда и нажмите 'Дальше'" + System.Environment.NewLine;
+                systemInitialized = true;
+                GetSystemResponse();
+
+                richTextBox1.Text += "Система сброшена!" + System.Environment.NewLine;
             }
             catch (Exception ex)
             {
-                outputBox.Text += "Ошибка: " + ex.Message + System.Environment.NewLine;
-                MessageBox.Show("Ошибка в синтаксисе: " + ex.Message);
+                richTextBox1.Text += "Ошибка: " + ex.Message + System.Environment.NewLine;
             }
         }
 
@@ -243,13 +253,84 @@ namespace ClipsFormsExample
             {
                 try
                 {
-                    codeBox.Text = System.IO.File.ReadAllText(clipsOpenFileDialog.FileName);
+                    codeBox.Text = File.ReadAllText(clipsOpenFileDialog.FileName);
                     Text = "Кулинарная экспертная система – " + clipsOpenFileDialog.FileName;
-                    outputBox.Text += "Файл загружен: " + clipsOpenFileDialog.FileName + System.Environment.NewLine;
+                    richTextBox1.Text += "Файл загружен: " + clipsOpenFileDialog.FileName + System.Environment.NewLine;
                 }
                 catch (Exception ex)
                 {
                     MessageBox.Show("Ошибка загрузки файла: " + ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        private void loadMultipleFilesBtn_Click(object sender, EventArgs e)
+        {
+            OpenFileDialog ofd = new OpenFileDialog();
+            ofd.Multiselect = true;
+            ofd.Filter = "CLIPS файлы (*.clp)|*.clp|Все файлы (*.*)|*.*";
+
+            if (ofd.ShowDialog() == DialogResult.OK)
+            {
+                try
+                {
+                    StringBuilder allCode = new StringBuilder();
+                    foreach (string filename in ofd.FileNames)
+                    {
+                        string fileContent = File.ReadAllText(filename);
+                        allCode.AppendLine(fileContent);
+                        allCode.AppendLine();
+                        richTextBox1.Text += "Загружен файл: " + filename + System.Environment.NewLine;
+                    }
+
+                    codeBox.Text = allCode.ToString();
+                    richTextBox1.Text += "Все файлы загружены последовательно" + System.Environment.NewLine;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Ошибка загрузки файлов: " + ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        private void startVoiceBtn_Click(object sender, EventArgs e)
+        {
+            if (recogn != null && systemInitialized)
+            {
+                try
+                {
+                    richTextBox1.Text += "Слушаю..." + System.Environment.NewLine;
+
+                    var grammarBuilder = new Microsoft.Speech.Recognition.GrammarBuilder();
+                    grammarBuilder.Culture = new System.Globalization.CultureInfo("ru-RU");
+                    grammarBuilder.AppendDictation();
+
+                    var grammar = new Microsoft.Speech.Recognition.Grammar(grammarBuilder);
+                    recogn.UnloadAllGrammars();
+                    recogn.LoadGrammar(grammar);
+
+                    recogn.RecognizeAsync(Microsoft.Speech.Recognition.RecognizeMode.Multiple);
+                }
+                catch (Exception ex)
+                {
+                    richTextBox1.Text += "Ошибка распознавания: " + ex.Message + System.Environment.NewLine;
+                }
+            }
+        }
+
+   
+        private void saveAsButton_Click(object sender, EventArgs e)
+        {
+            if (clipsSaveFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                try
+                {
+                    File.WriteAllText(clipsSaveFileDialog.FileName, codeBox.Text);
+                    richTextBox1.Text += "Файл сохранен: " + clipsSaveFileDialog.FileName + System.Environment.NewLine;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Ошибка сохранения: " + ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
         }
@@ -259,54 +340,8 @@ namespace ClipsFormsExample
             if (fontDialog1.ShowDialog() == DialogResult.OK)
             {
                 codeBox.Font = fontDialog1.Font;
-                outputBox.Font = fontDialog1.Font;
-            }
-        }
-
-        private void saveAsButton_Click(object sender, EventArgs e)
-        {
-            if (clipsSaveFileDialog.ShowDialog() == DialogResult.OK)
-            {
-                try
-                {
-                    System.IO.File.WriteAllText(clipsSaveFileDialog.FileName, codeBox.Text);
-                    outputBox.Text += "Файл сохранен: " + clipsSaveFileDialog.FileName + System.Environment.NewLine;
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Ошибка сохранения: " + ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            }
-        }
-
-        private void startVoiceBtn_Click(object sender, EventArgs e)
-        {
-            if (recogn != null)
-            {
-                try
-                {
-                    outputBox.Text += "Запуск голосового распознавания..." + System.Environment.NewLine;
-
-                    // Создаем простую грамматику
-                    var choices = new Microsoft.Speech.Recognition.Choices();
-                    choices.Add("Пицца Маргарита свежая", "Паста Карбонара",
-                               "Салат Цезарь классический", "Суп Том Ям",
-                               "Стейк Рибай", "Роллы Калифорния");
-
-                    var grammarBuilder = new Microsoft.Speech.Recognition.GrammarBuilder();
-                    grammarBuilder.Append(choices);
-
-                    var grammar = new Microsoft.Speech.Recognition.Grammar(grammarBuilder);
-                    recogn.UnloadAllGrammars();
-                    recogn.LoadGrammar(grammar);
-
-                    // Запускаем распознавание
-                    recogn.RecognizeAsync(Microsoft.Speech.Recognition.RecognizeMode.Multiple);
-                }
-                catch (Exception ex)
-                {
-                    outputBox.Text += "Ошибка запуска распознавания: " + ex.Message + System.Environment.NewLine;
-                }
+                richTextBox1.Font = fontDialog1.Font;
+                richTextBox2.Font = fontDialog1.Font;
             }
         }
 
@@ -315,10 +350,13 @@ namespace ClipsFormsExample
             base.OnLoad(e);
             outputBox.Text = "Кулинарная экспертная система" + System.Environment.NewLine +
                            "================================" + System.Environment.NewLine +
-                           "Для начала работы:" + System.Environment.NewLine +
-                           "1. Нажмите кнопку 'Дальше' для инициализации" + System.Environment.NewLine +
-                           "2. Введите название блюда в текстовое поле" + System.Environment.NewLine +
-                           "3. Нажмите 'Дальше' для поиска рецепта" + System.Environment.NewLine;
+                           "Система поддерживает:" + System.Environment.NewLine +
+                           "1. Диалог с пользователем через факт-посредник ioproxy" + System.Environment.NewLine +
+                           "2. Русский язык" + System.Environment.NewLine +
+                           "3. Загрузку нескольких файлов CLIPS" + System.Environment.NewLine +
+                           "4. Голосовое управление" + System.Environment.NewLine +
+                           "5. Коэффициенты уверенности" + System.Environment.NewLine + System.Environment.NewLine +
+                           "Для начала работы нажмите 'Дальше'" + System.Environment.NewLine;
         }
     }
 }
